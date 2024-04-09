@@ -1,11 +1,11 @@
-CC := zig cc
+CC := gcc
 
 TARGET_EXEC := citadel
 
 LIBS := :libraylib.a GL m pthread dl rt X11
 
 CPPFLAGS :=
-CFLAGS :=
+CFLAGS := -g
 LDFLAGS :=
 
 INC_DIRS := $(HOME)/install/include

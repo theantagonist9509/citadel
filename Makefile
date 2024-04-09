@@ -1,7 +1,5 @@
 include config.mk
 
-$(TARGET_EXEC): config.mk Makefile
-
 SRCS := $(wildcard src/*.c)
 DEPS := $(SRCS:src/%.c=build/%.d)
 OBJS := $(SRCS:src/%.c=build/%.o)
@@ -19,7 +17,6 @@ build/%.o: src/%.c
 -include $(DEPS)
 
 clean:
-	$(MAKE) -C ../common clean
 	$(RM) $(TARGET_EXEC) $(wildcard build/*)
 
 .PHONY: clean
