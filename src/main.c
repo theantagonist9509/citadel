@@ -11,7 +11,7 @@
 
 typedef enum {
 	SINGLE,
-	DOULBE,
+	DOUBLE,
 	PIERCE,
 } TankType;
 
@@ -348,6 +348,7 @@ void updateGameplayDrawData(GameplayDrawData *gameplay_draw_data, GameplayPhysic
 	}
 }
 
+#define TANKS_PATH_THICKNESS 75
 void drawGameplay(GameplayDrawData const *gameplay_draw_data)
 {
 	for (int i = 0; i < gameplay_draw_data->outposts_count; i++) {
@@ -380,12 +381,10 @@ void drawGameplay(GameplayDrawData const *gameplay_draw_data)
 		);
 	}
 
-#define TANKS_PATH_THICKNESS 75
 	for (uint8_t i = 0; i < gameplay_draw_data->tanks_path_points_count - 1; i++) { // Replace with baked background texture
 		DrawLineEx(gameplay_draw_data->tanks_path_points[i], gameplay_draw_data->tanks_path_points[i + 1], TANKS_PATH_THICKNESS, BEIGE);
 		DrawCircleV(gameplay_draw_data->tanks_path_points[i + 1], TANKS_PATH_THICKNESS / 2, BEIGE);
 	}
-#undef TANKS_PATH_THICKNESS
 
 	for (uint8_t i = 0; i < gameplay_draw_data->tanks_count; i++)
 		drawTank(&gameplay_draw_data->tanks_draw_data[i], gameplay_draw_data->texture_atlas);
@@ -407,9 +406,9 @@ typedef struct {
 
 	uint8_t selected_outpost;
 
-	uint32_t score; // move to gameplay?
+	uint32_t score; // move to GameplayLogic?
 	uint32_t coins;
-} GameUiLogic;
+} GameUiLogic; // merge with GameplayLogic?
 
 
 
@@ -425,19 +424,46 @@ bool isMouseHoveringOverTextureButton(Rectangle specification_destination_rectan
 	) < specification_destination_rectangle.width / 2;
 }
 
-void updateGameUiLogic(GameUiLogic *game_ui_logic)
+#define SQRT_2 1.414213f
+bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_points_count)
+{
+	for (uint8_t i = 0; i < path_points_count - 1; i++) {
+		float cos = Vector2DotProduct(
+			Vector2Normalize(Vector2Subtract(position, path_points[i])),
+			Vector2Normalize(Vector2Subtract(path_points[i + 1], path_points[i]))
+		);
+		float length = Vector2Length(Vector2Subtract(position, path_points[i]));
+		if (
+			(
+				cos > 0 &&
+				length * cos < Vector2Length(Vector2Subtract(path_points[i + 1], path_points[i])) &&
+				length * sqrt(1 - cos * cos) < TANKS_PATH_THICKNESS / 2 + 40
+			) ||
+			Vector2Distance(position, path_points[i + 1]) < TANKS_PATH_THICKNESS / 2 + 40
+		)
+			return false;
+	}
+
+	return true;
+}
+
+void updateGameUiLogic(GameUiLogic *game_ui_logic, GameplayLogic *gameplay_logic)
 {
 	game_ui_logic->is_ui_active = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
 
 	if (game_ui_logic->is_ui_active) {
-		for (uint8_t i = 0; i < game_ui_logic->outpost_texture_button_specifications_count; i++) {
-			if (
-				!(game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) &&
-				isMouseHoveringOverTextureButton(game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle) &&
-				IsMouseButtonReleased(MOUSE_BUTTON_LEFT)
-			) {
-				game_ui_logic->selected_outpost = i;
-				break;
+		if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+			if (game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) {
+				if (canOutpostBePlaced(GetMousePosition(), gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count)) {
+					// place outpost
+				}
+			} else {
+				for (uint8_t i = 0; i < game_ui_logic->outpost_texture_button_specifications_count; i++) {
+					if (isMouseHoveringOverTextureButton(game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle)) {
+						game_ui_logic->selected_outpost = i;
+						break;
+					}
+				}
 			}
 		}
 	} else {
@@ -445,7 +471,7 @@ void updateGameUiLogic(GameUiLogic *game_ui_logic)
 	}
 }
 
-void drawGameUi(GameUiLogic const *game_ui_logic, Texture2D texture_atlas)
+void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_logic, Texture2D texture_atlas)
 {
 	if (game_ui_logic->is_ui_active) {
 		if (game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) {
@@ -462,43 +488,46 @@ void drawGameUi(GameUiLogic const *game_ui_logic, Texture2D texture_atlas)
 				break;
 			}
 
-			DrawCircleV(GetMousePosition(), 40, GRAY);
+			if (canOutpostBePlaced(GetMousePosition(), gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count))
+				DrawCircleV(GetMousePosition(), 40, GRAY);
+			else
+				DrawCircleV(GetMousePosition(), 40, RED);
 			DrawCircleV(GetMousePosition(), 20, color);
-		}
-
-		DrawRectangle(
-			WINDOW_WIDTH * 3 / 4,
-			0,
-			WINDOW_WIDTH / 4,
-			WINDOW_HEIGHT,
-			(Color) {
-				.r = BEIGE.r,
-				.g = BEIGE.g,
-				.b = BEIGE.b,
-				.a = 127,
-			}
-		);
-
-		for (uint8_t i = 0; i < game_ui_logic->outpost_texture_button_specifications_count; i++) {
-			Rectangle scaled_destination_rectangle = game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle;
-			if (
-				!(game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) &&
-				isMouseHoveringOverTextureButton(game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle)) {
-				scaled_destination_rectangle.width *= 3.f / 2;
-				scaled_destination_rectangle.height *= 3.f / 2;
-			}
-
-			DrawTexturePro(
-				texture_atlas,
-				game_ui_logic->outpost_texture_button_specifications[i].atlas_source_rectangle,
-				scaled_destination_rectangle,
-				(Vector2) {
-					scaled_destination_rectangle.width / 2,
-					scaled_destination_rectangle.height / 2,
-				},
-				-30,
-				WHITE
+		} else {
+			DrawRectangle(
+				WINDOW_WIDTH * 3 / 4,
+				0,
+				WINDOW_WIDTH / 4,
+				WINDOW_HEIGHT,
+				(Color) {
+					.r = BEIGE.r,
+					.g = BEIGE.g,
+					.b = BEIGE.b,
+					.a = 127,
+				}
 			);
+
+			for (uint8_t i = 0; i < game_ui_logic->outpost_texture_button_specifications_count; i++) {
+				Rectangle scaled_destination_rectangle = game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle;
+				if (
+					!(game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) &&
+					isMouseHoveringOverTextureButton(game_ui_logic->outpost_texture_button_specifications[i].destination_rectangle)) {
+					scaled_destination_rectangle.width *= 3.f / 2;
+					scaled_destination_rectangle.height *= 3.f / 2;
+				}
+
+				DrawTexturePro(
+					texture_atlas,
+					game_ui_logic->outpost_texture_button_specifications[i].atlas_source_rectangle,
+					scaled_destination_rectangle,
+					(Vector2) {
+						scaled_destination_rectangle.width / 2,
+						scaled_destination_rectangle.height / 2,
+					},
+					-30,
+					WHITE
+				);
+			}
 		}
 	}
 }
@@ -818,14 +847,14 @@ respawn:
 			drawTitleScreen(&title_screen_draw_data);
 			break;
 		case GAME:
-			updateGameUiLogic(&game_ui_logic);
+			updateGameUiLogic(&game_ui_logic, &gameplay_logic);
 			updateGameplayLogic(&gameplay_logic, &gameplay_physics);
 			updateGameplayPhysics(&gameplay_physics);
 
 			updateGameplayDrawData(&gameplay_draw_data, &gameplay_physics);
 
 			drawGameplay(&gameplay_draw_data);
-			drawGameUi(&game_ui_logic, texture_atlas);
+			drawGameUi(&game_ui_logic, &gameplay_logic, texture_atlas);
 			break;
 		case QUIT:
 			goto quit;
