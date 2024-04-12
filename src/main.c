@@ -348,38 +348,42 @@ void updateGameplayDrawData(GameplayDrawData *gameplay_draw_data, GameplayPhysic
 	}
 }
 
+void drawOutpost(OutpostDrawData const *draw_data, Texture2D texture_atlas, Color tint)
+{
+	DrawTexturePro(
+		texture_atlas,
+		(Rectangle) {
+ 			.x = 0,
+			.y = 250,
+			.width = 26,
+			.height = 26,
+		},
+		draw_data->base_destination_rectangle,
+		(Vector2) {
+			draw_data->base_destination_rectangle.width / 2,
+			draw_data->base_destination_rectangle.height / 2,
+		},
+		0,
+		tint
+	);
+	DrawTexturePro(
+		texture_atlas,
+		draw_data->turret_atlas_source_rectangle,
+		draw_data->turret_destination_rectangle,
+		(Vector2) {
+			draw_data->turret_destination_rectangle.width / 2,
+			draw_data->turret_destination_rectangle.height / 2,
+		},
+		draw_data->turret_angle,
+		tint
+	);
+}
+
 #define TANKS_PATH_THICKNESS 75
 void drawGameplay(GameplayDrawData const *gameplay_draw_data)
 {
-	for (int i = 0; i < gameplay_draw_data->outposts_count; i++) {
-		DrawTexturePro(
-			gameplay_draw_data->texture_atlas,
-			(Rectangle) {
-	 			.x = 0,
-				.y = 250,
-				.width = 26,
-				.height = 26,
-			},
-			gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle,
-			(Vector2) {
-				gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle.width / 2,
-				gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle.height / 2,
-			},
-			0,
-			WHITE
-		);
-		DrawTexturePro(
-			gameplay_draw_data->texture_atlas,
-			gameplay_draw_data->outposts_draw_data[i].turret_atlas_source_rectangle,
-			gameplay_draw_data->outposts_draw_data[i].turret_destination_rectangle,
-			(Vector2) {
-				gameplay_draw_data->outposts_draw_data[i].turret_destination_rectangle.width / 2,
-				gameplay_draw_data->outposts_draw_data[i].turret_destination_rectangle.height / 2,
-			},
-			gameplay_draw_data->outposts_draw_data[i].turret_angle,
-			WHITE
-		);
-	}
+	for (int i = 0; i < gameplay_draw_data->outposts_count; i++)
+		drawOutpost(&gameplay_draw_data->outposts_draw_data[i], gameplay_draw_data->texture_atlas, WHITE);
 
 	for (uint8_t i = 0; i < gameplay_draw_data->tanks_path_points_count - 1; i++) { // Replace with baked background texture
 		DrawLineEx(gameplay_draw_data->tanks_path_points[i], gameplay_draw_data->tanks_path_points[i + 1], TANKS_PATH_THICKNESS, BEIGE);
@@ -424,8 +428,7 @@ bool isMouseHoveringOverTextureButton(Rectangle specification_destination_rectan
 	) < specification_destination_rectangle.width / 2;
 }
 
-#define SQRT_2 1.414213f
-bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_points_count)
+bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_points_count, OutpostDrawData *outposts_draw_data, uint8_t outposts_count)
 {
 	for (uint8_t i = 0; i < path_points_count - 1; i++) {
 		float cos = Vector2DotProduct(
@@ -444,18 +447,69 @@ bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_poi
 			return false;
 	}
 
+	for (uint8_t i = 0; i < outposts_count; i++) {
+		if (CheckCollisionRecs(
+			(Rectangle) {
+				.x = position.x,
+				.y = position.y,
+				.width = 75,
+				.height = 75,
+			},
+			outposts_draw_data[i].base_destination_rectangle
+		))
+			return false;
+	}
+
 	return true;
 }
 
-void updateGameUiLogic(GameUiLogic *game_ui_logic, GameplayLogic *gameplay_logic)
+void placeOutpost(OutpostType type, Vector2 position, OutpostLogic *logic, OutpostPhysics *physics, OutpostDrawData *draw_data)
+{
+	*logic = (OutpostLogic) {
+		.health = 100,
+		.type = type,
+	};
+
+	*physics = (OutpostPhysics) {
+		.position = position,
+		.turret_direction = {sqrtf(3.f) / 2.f, -1.f / 2.f},
+	};
+
+	*draw_data = (OutpostDrawData) {
+		.base_destination_rectangle = {
+			.x = position.x,
+			.y = position.y,
+			.width = 75,
+			.height = 75,
+		},
+		.turret_atlas_source_rectangle = {
+			.x = 30 * type,
+			.y = 280,
+			.width = 30,
+			.height = 11,
+		},
+		.turret_destination_rectangle = {
+			.x = position.x,
+			.y = position.y,
+			.width = 75,
+			.height = 30,
+		},
+		.turret_angle = -30,
+	};
+}
+
+void updateGameUiLogic(GameUiLogic *game_ui_logic, GameplayLogic *gameplay_logic, GameplayPhysics *gameplay_physics, GameplayDrawData *gameplay_draw_data)
 {
 	game_ui_logic->is_ui_active = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
 
 	if (game_ui_logic->is_ui_active) {
 		if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
 			if (game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) {
-				if (canOutpostBePlaced(GetMousePosition(), gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count)) {
-					// place outpost
+				if (canOutpostBePlaced(GetMousePosition(), gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count, gameplay_draw_data->outposts_draw_data, gameplay_logic->outposts_count)) {
+					placeOutpost(game_ui_logic->selected_outpost, GetMousePosition(), gameplay_logic->outposts_logic + gameplay_logic->outposts_count, gameplay_physics->outposts_physics + gameplay_logic->outposts_count, gameplay_draw_data->outposts_draw_data + gameplay_logic->outposts_count);
+					gameplay_logic->outposts_count++;
+					gameplay_physics->outposts_count++;
+					gameplay_draw_data->outposts_count++;
 				}
 			} else {
 				for (uint8_t i = 0; i < game_ui_logic->outpost_texture_button_specifications_count; i++) {
@@ -471,7 +525,7 @@ void updateGameUiLogic(GameUiLogic *game_ui_logic, GameplayLogic *gameplay_logic
 	}
 }
 
-void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_logic, Texture2D texture_atlas)
+void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_logic, GameplayDrawData const *gameplay_draw_data, Texture2D texture_atlas)
 {
 	if (game_ui_logic->is_ui_active) {
 		if (game_ui_logic->selected_outpost < game_ui_logic->outpost_texture_button_specifications_count) {
@@ -488,11 +542,36 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 				break;
 			}
 
-			if (canOutpostBePlaced(GetMousePosition(), gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count))
-				DrawCircleV(GetMousePosition(), 40, GRAY);
+			Vector2 mouse_position= GetMousePosition();
+
+			OutpostDrawData hovering_outpost_draw_data = {
+				.base_destination_rectangle = {
+					.x = mouse_position.x,
+					.y = mouse_position.y,
+					.width = 75,
+					.height = 75,
+				},
+				.turret_atlas_source_rectangle = {
+					.x = 30 * game_ui_logic->selected_outpost,
+					.y = 280,
+					.width = 30,
+					.height = 11,
+				},
+				.turret_destination_rectangle = {
+					.x = mouse_position.x,
+					.y = mouse_position.y,
+					.width = 75,
+					.height = 30,
+				},
+				.turret_angle = -30,
+			};
+
+			Color tint;
+			if (canOutpostBePlaced(mouse_position, gameplay_logic->tanks_path_points, gameplay_logic->tanks_path_points_count, gameplay_draw_data->outposts_draw_data, gameplay_logic->outposts_count))
+				tint = GRAY;
 			else
-				DrawCircleV(GetMousePosition(), 40, RED);
-			DrawCircleV(GetMousePosition(), 20, color);
+				tint = RED;
+			drawOutpost(&hovering_outpost_draw_data, gameplay_draw_data->texture_atlas, tint);
 		} else {
 			DrawRectangle(
 				WINDOW_WIDTH * 3 / 4,
@@ -570,6 +649,7 @@ int main(void)
 
 
 #define TITLE_SCREEN_TANKS_COUNT 50
+#define MAXIMUM_OUTPOSTS_COUNT 128
 
 	TextButtonSpecification title_screen_text_button_specifications[] = {
 		(TextButtonSpecification) {
@@ -610,39 +690,39 @@ int main(void)
 
 	Texture2D texture_atlas = LoadTexture("assets/texture-atlas.png");
 
-	OutpostDrawData game_outposts_draw_data[] = {
-		(OutpostDrawData) {
-			.base_destination_rectangle = {
-				.x = 650,
-				.y = 270,
-			},
-		},
-		(OutpostDrawData) {
-			.base_destination_rectangle = {
-				.x = 1600,
-				.y = 270,
-			},
-		},
-		(OutpostDrawData) {
-			.base_destination_rectangle = {
-				.x = 300,
-				.y = 700,
-			},
-		},
-		(OutpostDrawData) {
-			.base_destination_rectangle = {
-				.x = 1100,
-				.y = 600,
-			},
-		},
-		(OutpostDrawData) {
-			.base_destination_rectangle = {
-				.x = 1100,
-				.y = 800,
-			},
-		},
-	};
-	uint8_t game_outposts_count = sizeof game_outposts_draw_data / sizeof (OutpostDrawData);
+	//OutpostDrawData game_outposts_draw_data[] = {
+	//	(OutpostDrawData) {
+	//		.base_destination_rectangle = {
+	//			.x = 650,
+	//			.y = 270,
+	//		},
+	//	},
+	//	(OutpostDrawData) {
+	//		.base_destination_rectangle = {
+	//			.x = 1600,
+	//			.y = 270,
+	//		},
+	//	},
+	//	(OutpostDrawData) {
+	//		.base_destination_rectangle = {
+	//			.x = 300,
+	//			.y = 700,
+	//		},
+	//	},
+	//	(OutpostDrawData) {
+	//		.base_destination_rectangle = {
+	//			.x = 1100,
+	//			.y = 600,
+	//		},
+	//	},
+	//	(OutpostDrawData) {
+	//		.base_destination_rectangle = {
+	//			.x = 1100,
+	//			.y = 800,
+	//		},
+	//	},
+	//};
+	//uint8_t game_outposts_count = sizeof game_outposts_draw_data / sizeof (OutpostDrawData);
 
 	Vector2 game_state_tanks_path_points[] = {
 		(Vector2) {0, 100},
@@ -682,6 +762,7 @@ int main(void)
 	};
 
 	GameplayLogic gameplay_logic = {
+		.outposts_logic = alloca(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostLogic)), // get rid of all alloca() calls? can this just be a reference to an rvalue?
 		.tanks_logic = &(TankLogic) {},
 		.tanks_path_points = game_state_tanks_path_points,
 		.tanks_count = 1,
@@ -689,6 +770,7 @@ int main(void)
 	};
 
 	GameplayPhysics gameplay_physics = {
+		.outposts_physics = alloca(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostPhysics)),
 		.tanks_physics = &(TankPhysics) {
 			.position = {0, 100},
 			.velocity = {1, 0},
@@ -698,7 +780,7 @@ int main(void)
 
 	GameplayDrawData gameplay_draw_data = {
 		.texture_atlas = texture_atlas,
-		.outposts_draw_data = game_outposts_draw_data,
+		.outposts_draw_data = alloca(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostDrawData)),
 		.tanks_draw_data = &(TankDrawData) {
 			.atlas_source_rectangle = RED_TANK_ATLAS_SOURCE_RECTANGLE,
 			.destination_rectangle = {
@@ -707,7 +789,6 @@ int main(void)
 			},
 		},
 		.tanks_path_points = game_state_tanks_path_points,
-		.outposts_count = game_outposts_count,
 		.tanks_count = 1,
 		.tanks_path_points_count = game_state_tanks_path_points_count,
 	};
@@ -770,25 +851,25 @@ int main(void)
 
 	srand(time(NULL));
 
-	for (uint8_t i = 0; i < game_outposts_count; i++) {
-		gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.width = 125;
-		gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.height = 125;
+	//for (uint8_t i = 0; i < game_outposts_count; i++) {
+	//	gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.width = 125;
+	//	gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.height = 125;
 
-		gameplay_draw_data.outposts_draw_data[i].turret_atlas_source_rectangle = (Rectangle) {
-			.x = 30 * (i % 3),
-			.y = 280,
-			.width = 30,
-			.height = 11,
-		};
-		gameplay_draw_data.outposts_draw_data[i].turret_destination_rectangle = (Rectangle) {
-			.x = gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.x,
-			.y = gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.y,
-			.width = 150,
-			.height = 60,
-		};
+	//	gameplay_draw_data.outposts_draw_data[i].turret_atlas_source_rectangle = (Rectangle) {
+	//		.x = 30 * (i % 3),
+	//		.y = 280,
+	//		.width = 30,
+	//		.height = 11,
+	//	};
+	//	gameplay_draw_data.outposts_draw_data[i].turret_destination_rectangle = (Rectangle) {
+	//		.x = gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.x,
+	//		.y = gameplay_draw_data.outposts_draw_data[i].base_destination_rectangle.y,
+	//		.width = 150,
+	//		.height = 60,
+	//	};
 
-		gameplay_draw_data.outposts_draw_data[i].turret_angle = 360.f * ((float) rand() / RAND_MAX); // need this?
-	}
+	//	gameplay_draw_data.outposts_draw_data[i].turret_angle = 360.f * ((float) rand() / RAND_MAX); // need this?
+	//}
 
 	for (uint8_t i = 0; i < TITLE_SCREEN_TANKS_COUNT; i++) {
 		Rectangle atlas_source_rectangle;
@@ -847,14 +928,14 @@ respawn:
 			drawTitleScreen(&title_screen_draw_data);
 			break;
 		case GAME:
-			updateGameUiLogic(&game_ui_logic, &gameplay_logic);
+			updateGameUiLogic(&game_ui_logic, &gameplay_logic, &gameplay_physics, &gameplay_draw_data);
 			updateGameplayLogic(&gameplay_logic, &gameplay_physics);
 			updateGameplayPhysics(&gameplay_physics);
 
 			updateGameplayDrawData(&gameplay_draw_data, &gameplay_physics);
 
 			drawGameplay(&gameplay_draw_data);
-			drawGameUi(&game_ui_logic, &gameplay_logic, texture_atlas);
+			drawGameUi(&game_ui_logic, &gameplay_logic, &gameplay_draw_data, texture_atlas);
 			break;
 		case QUIT:
 			goto quit;
