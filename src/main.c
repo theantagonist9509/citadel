@@ -175,7 +175,7 @@ void drawHighscore(char highscore_text[], Texture2D texture_atlas, float scale)
 		SOYJAK_ATLAS_SOURCE_RECTANGLE,
 		(Rectangle) {
 			.x = 1400,
-			.y = 450,
+			.y = 550,
 			.width = SOYJAK_ATLAS_SOURCE_RECTANGLE.width * scale,
 			.height = SOYJAK_ATLAS_SOURCE_RECTANGLE.height * scale,
 		},
@@ -185,7 +185,7 @@ void drawHighscore(char highscore_text[], Texture2D texture_atlas, float scale)
 			.r = 255,
 			.g = 255,
 			.b = 255,
-			.a = 127,
+			.a = 90,
 		}
 	);
 #undef SOYJAK_ATLAS_SOURCE_RECTANGLE
@@ -201,6 +201,21 @@ void drawTank(TankDrawData const *draw_data, Texture2D texture_atlas)
 		draw_data->angle,
 		WHITE
 	);
+}
+
+void drawHealthBar(Vector2 position, float health) {
+    // Define health bar properties
+    float width = 50; // to be adjusted as needed
+    float height = 10; // to be adjusted as needed
+    Color healthColor = GREEN; // to be adjusted as needed
+
+    // Calculate health bar width based on health percentage
+    float currentWidth = width * (health / 100.0f);
+
+    // Draw health bar background
+    DrawRectangle(position.x - (width / 2), position.y - (height / 2), width, height, GRAY);
+    // Draw health bar foreground
+    DrawRectangle(position.x - (width / 2), position.y - (height / 2), currentWidth, height, healthColor); //drawing green over gray to show current health 
 }
 
 void enlargeTextButton(TextButtonSpecification *draw_data, Rectangle const *original_rectangle)
@@ -345,7 +360,16 @@ void updateGameplayDrawData(GameplayDrawData *gameplay_draw_data, GameplayPhysic
 		gameplay_draw_data->tanks_draw_data[i].destination_rectangle.y = gameplay_physics->tanks_physics[i].position.y;
 
 		gameplay_draw_data->tanks_draw_data[i].angle = atan2f(gameplay_physics->tanks_physics[i].velocity.y, gameplay_physics->tanks_physics[i].velocity.x) * 180.f / M_PI - 90.f;
-	}
+		/*// Update health bar position based on tank position
+        	Vector2 healthBarPosition = {
+        	gameplay_physics->tanks_physics[i].position.x, // Adjust as needed
+        	gameplay_physics->tanks_physics[i].position.y - 20 // Adjust as needed
+        	};
+
+        	// Draw tank and health bar
+        	drawTank(&gameplay_draw_data->tanks_draw_data[i], gameplay_draw_data->texture_atlas);
+        	drawHealthBar(healthBarPosition, gameplay_logic->tanks_logic[i].health);*/
+		}
 }
 
 void drawOutpost(OutpostDrawData const *draw_data, Texture2D texture_atlas, Color tint)
