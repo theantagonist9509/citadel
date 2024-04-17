@@ -438,6 +438,18 @@ typedef struct {
 	uint32_t coins;
 } GameUiLogic; // merge with GameplayLogic?
 
+//CHECK HOW THIS FUNCTION NEEDS TO BE ALTERED AS PER REQUIREMENT
+void handleSettingsInput(Settings* settings) {
+    // Example: adjust sound volume with arrow keys
+    if (IsKeyPressed(KEY_UP)) {
+        settings->soundVolume += 0.1f;
+        if (settings->soundVolume > 1.0f) settings->soundVolume = 1.0f;
+    } else if (IsKeyPressed(KEY_DOWN)) {
+        settings->soundVolume -= 0.1f;
+        if (settings->soundVolume < 0.0f) settings->soundVolume = 0.0f;
+    }
+    // Add similar logic for other settings
+}
 
 
 
@@ -635,7 +647,46 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 	}
 }
 
+//MINOR ADJUSTMENTS REQUIRED, SLIDER NOT SLIDING
+// Function to draw the settings page
+void DrawSettingsPage(Settings *settings) {
+    bool draggingSlider = false; // Flag to track if the slider handle is being dragged
 
+    while (!WindowShouldClose()) {
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        // Draw volume adjustment slider
+        DrawText("Sound Volume", 100, 100, 20, BLACK);
+        DrawRectangle(100, 130, 200, 20, LIGHTGRAY);
+        
+        // Calculate the position of the slider handle based on the sound volume
+        int sliderHandlePosX = 100 + (int)(settings->soundVolume * 200);
+
+        // Check for mouse input
+        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+            Vector2 mousePos = GetMousePosition();
+
+            // Check if the mouse is over the slider handle
+            if (CheckCollisionPointRec(mousePos, (Rectangle){sliderHandlePosX - 10, 130, 20, 20})) {
+                draggingSlider = true; // Start dragging the slider handle
+            }
+        } else {
+            draggingSlider = false; // Stop dragging the slider handle
+        }
+
+        // If the slider handle is being dragged, update the sound volume
+        if (draggingSlider) {
+            Vector2 mousePos = GetMousePosition();
+            // Ensure the slider handle stays within the slider bar bounds
+            settings->soundVolume = Clamp((mousePos.x - 100) / 200, 0.0f, 1.0f);
+        }
+
+        // Draw the slider handle
+        DrawRectangle(sliderHandlePosX - 10, 130, 20, 20, SKYBLUE);
+
+        EndDrawing();
+    }}
 
 
 #define GREEN_TANK_ATLAS_SOURCE_RECTANGLE\
@@ -669,6 +720,9 @@ int main(void)
 	ToggleFullscreen();
 	SetTargetFPS(60);
 
+	/*Music music = LoadMusicStream(//url link of music);
+	PlayMusicStream(music);
+	SetMusicLoopCount(music,-1);*/
 
 
 
@@ -945,7 +999,7 @@ respawn:
 
 	while(!WindowShouldClose()) {
 		BeginDrawing(); // OK to have updation code after this
-
+		//UpdateMusicStream(music);
 		switch (meta_state) {
 		case TITLE_SCREEN:
 			updateMetaStateAndTitleScreen(&meta_state, &title_screen_state, &title_screen_draw_data);
@@ -961,13 +1015,27 @@ respawn:
 			drawGameplay(&gameplay_draw_data);
 			drawGameUi(&game_ui_logic, &gameplay_logic, &gameplay_draw_data, texture_atlas);
 			break;
+		case SETTINGS:
+			const int screenWidth = 800;
+			const int screenHeight = 450;
+			InitWindow(screenWidth,screenHeight,"Settings Page");
+
+			//initialise game settings
+			Settings settings;
+    			settings.soundVolume=0.5f;
+
+			while(!WindowShouldClose()){
+				DrawSettingsPage(&settings);
+			}
+			CloseWindow();
+			break;
 		case QUIT:
 			goto quit;
 		}
 
 		EndDrawing();
 	}
-
+	//UnloadMusicStream(music)
 quit:
 	CloseWindow();
 	return 0;
