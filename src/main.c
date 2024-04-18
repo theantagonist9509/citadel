@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h> // Debugging
 #include <stdlib.h> // rand()
+#include <string.h>
 #include <time.h>
 
 #include <raylib.h>
@@ -76,7 +77,6 @@ typedef struct {
 
 typedef enum {
 	GAME,
-	SETTINGS,
 	QUIT,
 	TITLE_SCREEN,
 } MetaState;
@@ -84,6 +84,8 @@ typedef enum {
 typedef struct {
 	Vector2 tanks_velocity;
 	Rectangle *text_button_specifications_original_rectangles;
+	Rectangle music_toggle_button_specification_original_rectangle;
+	Music background_music;
 	float tanks_seconds_since_last_tick; // move to TitleScreenDrawData
 	uint8_t tanks_count;
 	uint8_t text_button_specifications_count;
@@ -94,6 +96,7 @@ typedef struct {
 	Color background_color;
 	TankDrawData *tanks_draw_data;
 	TextButtonSpecification *text_button_specifications;
+	TextButtonSpecification music_toggle_button_specification;
 	char *highscore_text;
 	float highscore_text_splash_time;
 	uint16_t tanks_texture_x_offset;
@@ -235,7 +238,7 @@ void drawHealthBar(Vector2 position, float health) {
 
 void enlargeTextButton(TextButtonSpecification *draw_data, Rectangle const *original_rectangle)
 {
-#define BUTTON_ENLARGE_FACTOR 4.f / 3.f
+#define BUTTON_ENLARGE_FACTOR 5.f / 4.f
 	draw_data->rectangle.x = original_rectangle->x - original_rectangle->width * ((BUTTON_ENLARGE_FACTOR - 1) / 2);
 	draw_data->rectangle.y = original_rectangle->y - original_rectangle->height * ((BUTTON_ENLARGE_FACTOR - 1) / 2);
 	draw_data->rectangle.width = BUTTON_ENLARGE_FACTOR * original_rectangle->width;
@@ -280,6 +283,23 @@ void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *titl
 		}
 	}
 
+	// Music toggle button
+	if (CheckCollisionPointRec(GetMousePosition(), title_screen_state->music_toggle_button_specification_original_rectangle)) {
+		if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+			if (IsMusicStreamPlaying(title_screen_state->background_music)) {
+				StopMusicStream(title_screen_state->background_music);
+				strcpy(title_screen_draw_data->music_toggle_button_specification.text, "Toggle Music [Off]");
+			} else {
+				PlayMusicStream(title_screen_state->background_music);
+				strcpy(title_screen_draw_data->music_toggle_button_specification.text, "Toggle Music [On]");
+			}
+		}
+
+		enlargeTextButton(&title_screen_draw_data->music_toggle_button_specification, &title_screen_state->music_toggle_button_specification_original_rectangle);
+	} else {
+		title_screen_draw_data->music_toggle_button_specification.rectangle = title_screen_state->music_toggle_button_specification_original_rectangle;
+	}
+
 	if (title_screen_draw_data->highscore_text_splash_time > 1.f / HIGHSCORE_TEXT_SPLASH_FREQUENCY)
 		title_screen_draw_data->highscore_text_splash_time -= 1.f / HIGHSCORE_TEXT_SPLASH_FREQUENCY;
 
@@ -313,6 +333,7 @@ void drawTitleScreen(TitleScreenDrawData const *title_screen_draw_data)
 
 	for (uint8_t i = 0; i < title_screen_draw_data->text_button_specifications_count; i++)
 		drawTextButton(&title_screen_draw_data->text_button_specifications[i]);
+	drawTextButton(&title_screen_draw_data->music_toggle_button_specification);
 
 	drawHighscore("Highscore: ", title_screen_draw_data->texture_atlas, 1 + 0.2f * sinf(HIGHSCORE_TEXT_SPLASH_FREQUENCY * 2 * M_PI * title_screen_draw_data->highscore_text_splash_time));
 }
@@ -530,17 +551,17 @@ typedef struct {
 } GameUiLogic; // merge with GameplayLogic?
 
 //CHECK HOW THIS FUNCTION NEEDS TO BE ALTERED AS PER REQUIREMENT
-void handleSettingsInput(Settings* settings) {
-    // Example: adjust sound volume with arrow keys
-    if (IsKeyPressed(KEY_UP)) {
-        settings->soundVolume += 0.1f;
-        if (settings->soundVolume > 1.0f) settings->soundVolume = 1.0f;
-    } else if (IsKeyPressed(KEY_DOWN)) {
-        settings->soundVolume -= 0.1f;
-        if (settings->soundVolume < 0.0f) settings->soundVolume = 0.0f;
-    }
-    // Add similar logic for other settings
-}
+//void handleSettingsInput(Settings* settings) {
+//    // Example: adjust sound volume with arrow keys
+//    if (IsKeyPressed(KEY_UP)) {
+//        settings->soundVolume += 0.1f;
+//        if (settings->soundVolume > 1.0f) settings->soundVolume = 1.0f;
+//    } else if (IsKeyPressed(KEY_DOWN)) {
+//        settings->soundVolume -= 0.1f;
+//        if (settings->soundVolume < 0.0f) settings->soundVolume = 0.0f;
+//    }
+//    // Add similar logic for other settings
+//}
 
 
 
@@ -786,44 +807,44 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 
 //MINOR ADJUSTMENTS REQUIRED, SLIDER NOT SLIDING
 // Function to draw the settings page
-void DrawSettingsPage(Settings *settings) {
-    bool draggingSlider = false; // Flag to track if the slider handle is being dragged
-
-    while (!WindowShouldClose()) {
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        // Draw volume adjustment slider
-        DrawText("Sound Volume", 100, 100, 20, BLACK);
-        DrawRectangle(100, 130, 200, 20, LIGHTGRAY);
-        
-        // Calculate the position of the slider handle based on the sound volume
-        int sliderHandlePosX = 100 + (int)(settings->soundVolume * 200);
-
-        // Check for mouse input
-        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-            Vector2 mousePos = GetMousePosition();
-
-            // Check if the mouse is over the slider handle
-            if (CheckCollisionPointRec(mousePos, (Rectangle){sliderHandlePosX - 10, 130, 20, 20})) {
-                draggingSlider = true; // Start dragging the slider handle
-            }
-        } else {
-            draggingSlider = false; // Stop dragging the slider handle
-        }
-
-        // If the slider handle is being dragged, update the sound volume
-        if (draggingSlider) {
-            Vector2 mousePos = GetMousePosition();
-            // Ensure the slider handle stays within the slider bar bounds
-            settings->soundVolume = Clamp((mousePos.x - 100) / 200, 0.0f, 1.0f);
-        }
-
-        // Draw the slider handle
-        DrawRectangle(sliderHandlePosX - 10, 130, 20, 20, SKYBLUE);
-
-        EndDrawing();
-    }}
+//void DrawSettingsPage(Settings *settings) {
+//    bool draggingSlider = false; // Flag to track if the slider handle is being dragged
+//
+//    while (!WindowShouldClose()) {
+//        BeginDrawing();
+//        ClearBackground(RAYWHITE);
+//
+//        // Draw volume adjustment slider
+//        DrawText("Sound Volume", 100, 100, 20, BLACK);
+//        DrawRectangle(100, 130, 200, 20, LIGHTGRAY);
+//        
+//        // Calculate the position of the slider handle based on the sound volume
+//        int sliderHandlePosX = 100 + (int)(settings->soundVolume * 200);
+//
+//        // Check for mouse input
+//        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+//            Vector2 mousePos = GetMousePosition();
+//
+//            // Check if the mouse is over the slider handle
+//            if (CheckCollisionPointRec(mousePos, (Rectangle){sliderHandlePosX - 10, 130, 20, 20})) {
+//                draggingSlider = true; // Start dragging the slider handle
+//            }
+//        } else {
+//            draggingSlider = false; // Stop dragging the slider handle
+//        }
+//
+//        // If the slider handle is being dragged, update the sound volume
+//        if (draggingSlider) {
+//            Vector2 mousePos = GetMousePosition();
+//            // Ensure the slider handle stays within the slider bar bounds
+//            settings->soundVolume = Clamp((mousePos.x - 100) / 200, 0.0f, 1.0f);
+//        }
+//
+//        // Draw the slider handle
+//        DrawRectangle(sliderHandlePosX - 10, 130, 20, 20, SKYBLUE);
+//
+//        EndDrawing();
+//    }}
 
 
 #define GREEN_TANK_ATLAS_SOURCE_RECTANGLE\
@@ -857,9 +878,10 @@ int main(void)
 	ToggleFullscreen();
 	SetTargetFPS(60);
 
-	/*Music music = LoadMusicStream(//url link of music);
-	PlayMusicStream(music);
-	SetMusicLoopCount(music,-1);*/
+	InitAudioDevice();
+	Music background_music = LoadMusicStream("assets/background-music.mp3"); // TODO currently broken
+	PlayMusicStream(background_music);
+
 
 
 
@@ -874,18 +896,7 @@ int main(void)
 		        .rectangle = {
 		        	.x = 100,
 		        	.y = WINDOW_HEIGHT / 2,
-		        	.width = 400,
-		        	.height = 100,
-		        },
-		        .text_color = WHITE,
-		        .rectangle_color = RED,
-		},
-		(TextButtonSpecification) {
-		        .text = "Settings",
-		        .rectangle = {
-		        	.x = 100,
-		        	.y = WINDOW_HEIGHT / 2 + 150,
-		        	.width = 400,
+		        	.width = 700,
 		        	.height = 100,
 		        },
 		        .text_color = WHITE,
@@ -896,7 +907,7 @@ int main(void)
 			.rectangle = {
 				.x = 100,
 				.y = WINDOW_HEIGHT / 2 + 300,
-				.width = 400,
+				.width = 700,
 				.height = 100,
 			},
 			.text_color = WHITE,
@@ -904,6 +915,18 @@ int main(void)
 		},
 	};
 	uint8_t title_screen_text_button_specifications_count = sizeof title_screen_text_button_specifications / sizeof (TextButtonSpecification);
+	TextButtonSpecification title_screen_music_toggle_button_specification = {
+	        .text = malloc(64 * sizeof (char)), // Trailing null to accomodate for Off condition
+	        .rectangle = {
+	        	.x = 100,
+	        	.y = WINDOW_HEIGHT / 2 + 150,
+	        	.width = 700,
+	        	.height = 100,
+	        },
+	        .text_color = WHITE,
+	        .rectangle_color = RED,
+	};
+	strcpy(title_screen_music_toggle_button_specification.text, "Toggle Music [On]");
 
 	Texture2D texture_atlas = LoadTexture("assets/texture-atlas.png");
 
@@ -931,6 +954,8 @@ int main(void)
 	TitleScreenState title_screen_state = {
 		.tanks_velocity = {50, -50},
 		.text_button_specifications_original_rectangles = malloc(title_screen_text_button_specifications_count * sizeof (Rectangle)),
+		.music_toggle_button_specification_original_rectangle = title_screen_music_toggle_button_specification.rectangle,
+		.background_music = background_music,
 		.tanks_count = TITLE_SCREEN_TANKS_COUNT,
 		.text_button_specifications_count = title_screen_text_button_specifications_count,
 	};
@@ -940,6 +965,7 @@ int main(void)
 		.background_color = DARKGREEN,
 		.tanks_draw_data = malloc(TITLE_SCREEN_TANKS_COUNT * sizeof (TankDrawData)),
 		.text_button_specifications = title_screen_text_button_specifications,
+		.music_toggle_button_specification = title_screen_music_toggle_button_specification,
 		.tanks_count = TITLE_SCREEN_TANKS_COUNT,
 		.text_button_specifications_count = title_screen_text_button_specifications_count,
 	};
@@ -1085,8 +1111,9 @@ respawn:
 
 
 	while(!WindowShouldClose()) {
+		UpdateMusicStream(background_music);
 		BeginDrawing(); // OK to have updation code after this
-		//UpdateMusicStream(music);
+
 		switch (meta_state) {
 		case TITLE_SCREEN:
 			updateMetaStateAndTitleScreen(&meta_state, &title_screen_state, &title_screen_draw_data);
@@ -1102,28 +1129,15 @@ respawn:
 			drawGameplay(&gameplay_logic, &gameplay_draw_data);
 			drawGameUi(&game_ui_logic, &gameplay_logic, &gameplay_draw_data, texture_atlas);
 			break;
-		case SETTINGS:
-			const int screenWidth = 800;
-			const int screenHeight = 450;
-			InitWindow(screenWidth,screenHeight,"Settings Page");
-
-			//initialise game settings
-			Settings settings;
-    			settings.soundVolume=0.5f;
-
-			while(!WindowShouldClose()){
-				DrawSettingsPage(&settings);
-			}
-			CloseWindow();
-			break;
 		case QUIT:
 			goto quit;
 		}
 
 		EndDrawing();
 	}
-	//UnloadMusicStream(music)
 quit:
+	UnloadMusicStream(background_music);
+	CloseAudioDevice();
 	CloseWindow();
 	return 0;
 }
