@@ -338,6 +338,15 @@ void drawTitleScreen(TitleScreenDrawData const *title_screen_draw_data)
 
 
 
+void evictElement(void *array, uint8_t length, size_t element_size, uint8_t index)
+{
+	uint8_t *byte_array = (uint8_t *) array;
+	//memmove(byte_array + index * element_size, byte_array + (index + 1) * element_size, (length - (index + 1)) * element_size); // TODO this segfaults
+
+	for (uint8_t i = index; i < length - 1; i++)
+		memcpy(byte_array + index * element_size, byte_array + (index + 1) * element_size, element_size);
+}
+
 #define OUTPOST_RANGE 300.f
 #define TANK_RANGE 200.f
 
@@ -347,7 +356,7 @@ void drawTitleScreen(TitleScreenDrawData const *title_screen_draw_data)
 #define OUTPOST_MAXIMUM_HEALTH 100.f
 #define TANK_MAXIMUM_HEALTH 100.f
 
-void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics const *gameplay_physics, GameplayDrawData *gameplay_draw_data)
+void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics *gameplay_physics, GameplayDrawData *gameplay_draw_data)
 {
 	for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
 		for (uint8_t j = 0; j < gameplay_logic->tanks_count; j++) {
@@ -390,7 +399,40 @@ void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics const *g
 		}
 	}
 
+
+for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
+	printf("A: %f, ", gameplay_physics->outposts_physics[i].position.x);
+}
+putchar('\n');
 	// evict zero health elements
+	for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
+		if (gameplay_logic->outposts_logic[i].health < 0) {
+			evictElement(gameplay_logic->outposts_logic, gameplay_logic->outposts_count, sizeof (OutpostLogic), i);
+			evictElement(gameplay_physics->outposts_physics, gameplay_logic->outposts_count, sizeof (OutpostPhysics), i);
+			evictElement(gameplay_draw_data->outposts_draw_data, gameplay_logic->outposts_count, sizeof (OutpostDrawData), i);
+			gameplay_logic->outposts_count--;
+			gameplay_physics->outposts_count--;
+			gameplay_draw_data->outposts_count--;
+			break;
+		}
+	}
+
+	for (uint8_t i = 0; i < gameplay_logic->tanks_count; i++) {
+		if (gameplay_logic->tanks_logic[i].health < 0) {
+			evictElement(gameplay_logic->tanks_logic, gameplay_logic->outposts_count, sizeof (TankLogic), i);
+			evictElement(gameplay_physics->tanks_physics, gameplay_logic->outposts_count, sizeof (TankPhysics), i);
+			evictElement(gameplay_draw_data->tanks_draw_data, gameplay_logic->outposts_count, sizeof (TankDrawData), i);
+			gameplay_logic->tanks_count--;
+			gameplay_physics->tanks_count--;
+			gameplay_draw_data->tanks_count--;
+			break;
+		}
+	}
+for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
+	printf("B: %f, ", gameplay_physics->outposts_physics[i].position.x);
+}
+putchar('\n');
+
 
 	for (uint8_t i = 0; i < gameplay_logic->tanks_count; i++) {
 		if (Vector2Distance(gameplay_physics->tanks_physics[i].position,  gameplay_logic->tanks_path_points[gameplay_logic->tanks_path_points_count - 1]) < 60.f) {
@@ -443,11 +485,9 @@ void updateGameplayDrawData(GameplayDrawData *gameplay_draw_data, GameplayPhysic
 	}
 	gameplay_draw_data->tanks_seconds_since_last_tick += frame_time;
 
-	// update animations
+	// update animations (outpost and tank)
 
-	// evict expired outpost animations
-
-	// evict expired tank animations
+	// evict expired animations (outpost and tank)
 
 	for (uint8_t i = 0; i < gameplay_draw_data->outposts_count; i++)
 		gameplay_draw_data->outposts_draw_data[i].turret_angle = atan2f(gameplay_physics->outposts_physics[i].turret_direction.y, gameplay_physics->outposts_physics[i].turret_direction.x) * 180.f / M_PI;
@@ -469,7 +509,7 @@ void updateGameplayDrawData(GameplayDrawData *gameplay_draw_data, GameplayPhysic
         	// Draw tank and health bar
         	drawTank(&gameplay_draw_data->tanks_draw_data[i], gameplay_draw_data->texture_atlas);
         	drawHealthBar(healthBarPosition, gameplay_logic->tanks_logic[i].health);*/
-		}
+	}
 }
 
 void drawOutpost(OutpostDrawData const *draw_data, Texture2D texture_atlas, Color tint)
