@@ -193,7 +193,7 @@ void drawHighscore(char highscore_text[], Texture2D texture_atlas, float scale)
 		SOYJAK_ATLAS_SOURCE_RECTANGLE,
 		(Rectangle) {
 			.x = 1400,
-			.y = 550,
+			.y = 450,
 			.width = SOYJAK_ATLAS_SOURCE_RECTANGLE.width * scale,
 			.height = SOYJAK_ATLAS_SOURCE_RECTANGLE.height * scale,
 		},
@@ -203,10 +203,22 @@ void drawHighscore(char highscore_text[], Texture2D texture_atlas, float scale)
 			.r = 255,
 			.g = 255,
 			.b = 255,
-			.a = 90,
+			.a = 127,
 		}
 	);
 #undef SOYJAK_ATLAS_SOURCE_RECTANGLE
+}
+
+
+
+
+#define HEALTH_BAR_WIDTH 75.f
+#define HEALTH_BAR_HEIGHT 10.f
+void drawHealthBar(float health, float maximum_health, Vector2 position)
+{
+	float fraction = health / maximum_health;
+	DrawRectangle(position.x, position.y, HEALTH_BAR_WIDTH * fraction, HEALTH_BAR_HEIGHT, GREEN);
+	DrawRectangle(position.x + HEALTH_BAR_WIDTH * fraction, position.y, HEALTH_BAR_WIDTH * (1.f - fraction), HEALTH_BAR_HEIGHT, LIGHTGRAY);
 }
 
 void drawTank(TankDrawData const *draw_data, Texture2D texture_atlas)
@@ -219,21 +231,6 @@ void drawTank(TankDrawData const *draw_data, Texture2D texture_atlas)
 		draw_data->angle,
 		WHITE
 	);
-}
-
-void drawHealthBar(Vector2 position, float health) {
-    // Define health bar properties
-    float width = 50; // to be adjusted as needed
-    float height = 10; // to be adjusted as needed
-    Color healthColor = GREEN; // to be adjusted as needed
-
-    // Calculate health bar width based on health percentage
-    float currentWidth = width * (health / 100.0f);
-
-    // Draw health bar background
-    DrawRectangle(position.x - (width / 2), position.y - (height / 2), width, height, GRAY);
-    // Draw health bar foreground
-    DrawRectangle(position.x - (width / 2), position.y - (height / 2), currentWidth, height, healthColor); //drawing green over gray to show current health 
 }
 
 void enlargeTextButton(TextButtonSpecification *draw_data, Rectangle const *original_rectangle)
@@ -341,10 +338,15 @@ void drawTitleScreen(TitleScreenDrawData const *title_screen_draw_data)
 
 
 
-#define OUTPOST_RANGE 300
-#define TANK_RANGE 200
+#define OUTPOST_RANGE 300.f
+#define TANK_RANGE 200.f
+
 #define OUTPOST_SHOT_COOLDOWN_SECONDS 0.5f
 #define TANK_SHOT_COOLDOWN_SECONDS 0.75f
+
+#define OUTPOST_MAXIMUM_HEALTH 100.f
+#define TANK_MAXIMUM_HEALTH 100.f
+
 void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics const *gameplay_physics, GameplayDrawData *gameplay_draw_data)
 {
 	for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
@@ -506,16 +508,35 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayDrawData const *g
 {
 	drawBackground(gameplay_draw_data->texture_atlas);
 
-	for (uint8_t i = 0; i < gameplay_draw_data->outposts_count; i++)
+	for (uint8_t i = 0; i < gameplay_draw_data->outposts_count; i++) {
 		drawOutpost(&gameplay_draw_data->outposts_draw_data[i], gameplay_draw_data->texture_atlas, WHITE);
+		drawHealthBar(
+			gameplay_logic->outposts_logic[i].health,
+			OUTPOST_MAXIMUM_HEALTH,
+			(Vector2) {
+				.x = gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle.x - HEALTH_BAR_WIDTH / 2,
+				.y = gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle.y - (gameplay_draw_data->outposts_draw_data[i].base_destination_rectangle.height / 2 + 1.5f * HEALTH_BAR_HEIGHT),
+			}
+		);
+	}
 
 	for (uint8_t i = 0; i < gameplay_draw_data->tanks_path_points_count - 1; i++) { // Replace with baked background texture
 		DrawLineEx(gameplay_draw_data->tanks_path_points[i], gameplay_draw_data->tanks_path_points[i + 1], TANKS_PATH_THICKNESS, BEIGE);
 		DrawCircleV(gameplay_draw_data->tanks_path_points[i + 1], TANKS_PATH_THICKNESS / 2, BEIGE);
 	}
 
-	for (uint8_t i = 0; i < gameplay_draw_data->tanks_count; i++)
+	for (uint8_t i = 0; i < gameplay_draw_data->tanks_count; i++) {
 		drawTank(&gameplay_draw_data->tanks_draw_data[i], gameplay_draw_data->texture_atlas);
+		drawHealthBar(
+			gameplay_logic->tanks_logic[i].health,
+			TANK_MAXIMUM_HEALTH,
+			(Vector2) {
+				.x = gameplay_draw_data->tanks_draw_data[i].destination_rectangle.x - HEALTH_BAR_WIDTH / 2,
+				.y = gameplay_draw_data->tanks_draw_data[i].destination_rectangle.y - (gameplay_draw_data->tanks_draw_data[i].destination_rectangle.height / 2 + 1.5f * HEALTH_BAR_HEIGHT),
+			}
+		);
+
+	}
 
 	// draw animations
 	for (uint8_t i = 0; i < gameplay_draw_data->outpost_shot_animations_count; i++) {
@@ -846,7 +867,6 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 //        EndDrawing();
 //    }}
 
-
 #define GREEN_TANK_ATLAS_SOURCE_RECTANGLE\
 	((Rectangle) {\
 	 	.x = 0,\
@@ -931,18 +951,16 @@ int main(void)
 	Texture2D texture_atlas = LoadTexture("assets/texture-atlas.png");
 
 	Vector2 game_state_tanks_path_points[] = {
-		(Vector2) {0, 100},
-		(Vector2) {1800, 100},
-		(Vector2) {1800, 700},
-		(Vector2) {1400, 700},
-		(Vector2) {1400, 400},
-		(Vector2) {800, 400},
-		(Vector2) {800, 700},
-		(Vector2) {500, 700},
-		(Vector2) {500, 400},
-		(Vector2) {100, 400},
-		(Vector2) {100, 980},
-		(Vector2) {1400, 980},
+		(Vector2) {0, 200},
+		(Vector2) {1000, 200},
+		(Vector2) {1000, 550},
+		(Vector2) {100, 550},
+		(Vector2) {100, 900},
+		(Vector2) {1300, 900},
+		(Vector2) {1300, 100},
+		(Vector2) {1650, 100},
+		(Vector2) {1650, 1000},
+		(Vector2) {1920, 1000},
 	};
 	uint8_t game_state_tanks_path_points_count = sizeof game_state_tanks_path_points / sizeof (Vector2);
 
@@ -972,7 +990,9 @@ int main(void)
 
 	GameplayLogic gameplay_logic = {
 		.outposts_logic = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostLogic)), // get rid of all alloca() calls? can this just be a reference to an rvalue?
-		.tanks_logic = &(TankLogic) {},
+		.tanks_logic = &(TankLogic) {
+			.health = TANK_MAXIMUM_HEALTH,
+		},
 		.tanks_path_points = game_state_tanks_path_points,
 		.tanks_count = 1,
 		.tanks_path_points_count = game_state_tanks_path_points_count,
@@ -981,7 +1001,7 @@ int main(void)
 	GameplayPhysics gameplay_physics = {
 		.outposts_physics = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostPhysics)),
 		.tanks_physics = &(TankPhysics) {
-			.position = {0, 100},
+			.position = {0, 200},
 			.velocity = {1, 0},
 		},
 		.tanks_count = 1,
