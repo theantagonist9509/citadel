@@ -10,7 +10,7 @@
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
 
-typedef enum {
+typedef enum { // separate each type into own array for data-orientation
 	TANK_SINGLE,
 	TANK_DOUBLE,
 	TANK_PIERCE,
@@ -35,7 +35,7 @@ typedef struct {
 	float angle;
 } TankDrawData; // rename to TankDrawing or TankDrawingData
 
-typedef enum {
+typedef enum { // separate each type into own array for data-orientation
 	OUTPOST_SIMPLE,
 	OUTPOST_MORTAR,
 	OUTPOST_PIERCE,
@@ -67,9 +67,11 @@ typedef struct {
 } TextButtonSpecification;
 
 typedef struct {
+	Vector2 outpost_position;
+	Vector2 tank_position;
+	Vector2 initial_direction;
 	float seconds_remaining;
-	uint8_t outpost_index;
-	uint8_t tank_index;
+	uint8_t type;
 } ShotAnimation;
 
 
@@ -111,6 +113,11 @@ typedef struct {
 	OutpostLogic *outposts_logic;
 	TankLogic *tanks_logic;
 	Vector2 *tanks_path_points;
+
+	float seconds_till_next_wave;
+	uint8_t current_wave_number;
+	uint8_t current_wave_tanks_spawned_count;
+
 	uint8_t outposts_count;
 	uint8_t tanks_count;
 	uint8_t tanks_path_points_count;
@@ -247,6 +254,8 @@ void enlargeTextButton(TextButtonSpecification *draw_data, Rectangle const *orig
 #define HIGHSCORE_TEXT_SPLASH_FREQUENCY 1.f
 void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *title_screen_state, TitleScreenDrawData *title_screen_draw_data)
 {
+	float frame_time = GetFrameTime();
+
 	if (title_screen_state->tanks_seconds_since_last_tick > 0.05f) {
 		if (title_screen_draw_data->tanks_texture_x_offset == 0)
 			title_screen_draw_data->tanks_texture_x_offset = 100;
@@ -255,11 +264,11 @@ void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *titl
 
 		title_screen_state->tanks_seconds_since_last_tick = 0.f;
 	}
-	title_screen_state->tanks_seconds_since_last_tick += GetFrameTime();
+	title_screen_state->tanks_seconds_since_last_tick += frame_time;
 
 	for (uint8_t i = 0; i < title_screen_state->tanks_count; i++) {
-		title_screen_draw_data->tanks_draw_data[i].destination_rectangle.x += title_screen_state->tanks_velocity.x * GetFrameTime();
-		title_screen_draw_data->tanks_draw_data[i].destination_rectangle.y += title_screen_state->tanks_velocity.y * GetFrameTime();
+		title_screen_draw_data->tanks_draw_data[i].destination_rectangle.x += title_screen_state->tanks_velocity.x * frame_time;
+		title_screen_draw_data->tanks_draw_data[i].destination_rectangle.y += title_screen_state->tanks_velocity.y * frame_time;
 
 		if (title_screen_draw_data->tanks_draw_data[i].destination_rectangle.x > WINDOW_WIDTH + TITLE_SCREEN_SPAWN_PADDING)
 			title_screen_draw_data->tanks_draw_data[i].destination_rectangle.x = -TITLE_SCREEN_SPAWN_PADDING;
@@ -300,7 +309,7 @@ void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *titl
 	if (title_screen_draw_data->highscore_text_splash_time > 1.f / HIGHSCORE_TEXT_SPLASH_FREQUENCY)
 		title_screen_draw_data->highscore_text_splash_time -= 1.f / HIGHSCORE_TEXT_SPLASH_FREQUENCY;
 
-	title_screen_draw_data->highscore_text_splash_time += GetFrameTime();
+	title_screen_draw_data->highscore_text_splash_time += frame_time;
 }
 
 void drawTextButton(TextButtonSpecification const *draw_data)
@@ -347,6 +356,32 @@ void evictElement(void *array, uint8_t length, size_t element_size, uint8_t inde
 		memcpy(byte_array + index * element_size, byte_array + (index + 1) * element_size, element_size);
 }
 
+#define GREEN_TANK_ATLAS_SOURCE_RECTANGLE\
+	((Rectangle) {\
+	 	.x = 0,\
+		.y = 0,\
+		.width = 63,\
+		.height = 83,\
+	 })
+
+#define BLUE_TANK_ATLAS_SOURCE_RECTANGLE\
+	((Rectangle) {\
+	 	.x = 0,\
+		.y = 100,\
+		.width = 62,\
+		.height = 67,\
+	 })
+
+#define RED_TANK_ATLAS_SOURCE_RECTANGLE\
+	((Rectangle) {\
+	 	.x = 0,\
+		.y = 182,\
+		.width = 59,\
+		.height = 68,\
+	 })
+
+#define TANK_SPEED 150.f
+
 #define OUTPOST_RANGE 300.f
 #define TANK_RANGE 200.f
 
@@ -356,21 +391,71 @@ void evictElement(void *array, uint8_t length, size_t element_size, uint8_t inde
 #define TANK_SHOT_COOLDOWN_SECONDS 0.75f
 
 #define OUTPOST_MAXIMUM_HEALTH 100.f
-#define TANK_MAXIMUM_HEALTH 1000.f
+#define TANK_MAXIMUM_HEALTH 100.f
 
-#define OUTPOST_SIMPLE_ANIMATION_DURATION_SECONDS 0.2f
+#define OUTPOST_SIMPLE_ANIMATION_DURATION_SECONDS 0.25f
 #define OUTPOST_MORTAR_ANIMATION_DURATION_SECONDS 0.75f
 #define OUTPOST_PIERCE_ANIMATION_DURATION_SECONDS 0.75f
 
 void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics *gameplay_physics, GameplayDrawData *gameplay_draw_data)
 {
+	float frame_time = GetFrameTime();
+
+	if (gameplay_logic->seconds_till_next_wave < 0.f) {
+		if (gameplay_logic->current_wave_tanks_spawned_count < (1 << gameplay_logic->current_wave_number)) {
+			if (
+				gameplay_logic->tanks_count == 0 ||
+				Vector2Distance(
+					gameplay_physics->tanks_physics[gameplay_logic->tanks_count - 1].position,
+					gameplay_logic->tanks_path_points[0]
+				) > 200.f * (1 + (float) rand() / RAND_MAX)
+			) {
+				gameplay_logic->tanks_logic[gameplay_logic->tanks_count] = (TankLogic) {
+					.health = TANK_MAXIMUM_HEALTH,
+					.seconds_since_last_shot = TANK_SHOT_COOLDOWN_SECONDS,
+					.type = rand() % 3,
+				};
+				gameplay_physics->tanks_physics[gameplay_logic->tanks_count] = (TankPhysics) {
+					.position = gameplay_logic->tanks_path_points[0],
+					.velocity = Vector2Subtract(gameplay_logic->tanks_path_points[1], gameplay_logic->tanks_path_points[0]), // Rescaled every frame
+				};
+				switch (gameplay_logic->tanks_logic[gameplay_logic->tanks_count].type) {
+				case 0:
+					gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].atlas_source_rectangle = GREEN_TANK_ATLAS_SOURCE_RECTANGLE;
+					break;
+				case 1:
+					gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].atlas_source_rectangle = BLUE_TANK_ATLAS_SOURCE_RECTANGLE;
+					break;
+				case 2:
+					gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].atlas_source_rectangle = RED_TANK_ATLAS_SOURCE_RECTANGLE;
+					break;
+				}
+				gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].destination_rectangle = (Rectangle) {
+					.width = gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].atlas_source_rectangle.width,
+					.height = gameplay_draw_data->tanks_draw_data[gameplay_logic->tanks_count].atlas_source_rectangle.height,
+				};
+
+				gameplay_logic->tanks_count++;
+				gameplay_physics->tanks_count++;
+				gameplay_draw_data->tanks_count++;
+
+				gameplay_logic->current_wave_tanks_spawned_count++;
+			}
+		} else {
+			gameplay_logic->seconds_till_next_wave = 15.f;
+			gameplay_logic->current_wave_number++;
+			gameplay_logic->current_wave_tanks_spawned_count = 0;
+		}
+	}
+	gameplay_logic->seconds_till_next_wave -= frame_time;
+
 	for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++) {
 		for (uint8_t j = 0; j < gameplay_logic->tanks_count; j++) {
 			if (Vector2Distance(gameplay_physics->tanks_physics[j].position, gameplay_physics->outposts_physics[i].position) < OUTPOST_RANGE) {
 				Vector2 difference = Vector2Subtract(gameplay_physics->tanks_physics[j].position, gameplay_physics->outposts_physics[i].position);
 				gameplay_physics->outposts_physics[i].turret_direction = Vector2Normalize(Vector2Add(
 					gameplay_physics->outposts_physics[i].turret_direction,
-					Vector2Scale(difference, (gameplay_logic->outposts_logic[i].type == OUTPOST_PIERCE ? 0.1f : 0.025f) * GetFrameTime())
+					Vector2Scale(difference, (gameplay_logic->outposts_logic[i].type == OUTPOST_PIERCE ? 0.1f : 0.025f) * frame_time)
 				));
 
 				switch (gameplay_logic->outposts_logic[i].type) {
@@ -386,7 +471,7 @@ void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics *gamepla
 					if (gameplay_logic->outposts_logic[i].seconds_since_last_shot < OUTPOST_MORTAR_SHOT_COOLDOWN_SECONDS)
 						goto next_outpost;
 
-					gameplay_logic->tanks_logic[j].health -= 10.f;
+					gameplay_logic->tanks_logic[j].health -= 15.f;
 					gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].seconds_remaining = OUTPOST_MORTAR_ANIMATION_DURATION_SECONDS;
 					break;
 
@@ -394,13 +479,16 @@ void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics *gamepla
 					if (gameplay_logic->outposts_logic[i].seconds_since_last_shot < OUTPOST_PIERCE_SHOT_COOLDOWN_SECONDS)
 						goto next_outpost;
 
-					gameplay_logic->tanks_logic[j].health -= 10.f;
+					gameplay_logic->tanks_logic[j].health -= 20.f;
 					gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].seconds_remaining = OUTPOST_PIERCE_ANIMATION_DURATION_SECONDS;
 					break;
 				}
 
-				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].outpost_index = i;
-				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].tank_index = j;
+				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].outpost_position = gameplay_physics->outposts_physics[i].position;
+				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].tank_position = gameplay_physics->tanks_physics[j].position;
+				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].initial_direction = gameplay_physics->outposts_physics[i].turret_direction;
+				gameplay_draw_data->outpost_shot_animations[gameplay_draw_data->outpost_shot_animations_count].type = gameplay_logic->outposts_logic[i].type;
+
 				gameplay_draw_data->outpost_shot_animations_count++;
 				gameplay_logic->outposts_logic[i].seconds_since_last_shot = 0.f;
 				goto next_outpost;
@@ -417,9 +505,11 @@ next_outpost: {}
 			if (Vector2Distance(gameplay_physics->outposts_physics[j].position, gameplay_physics->tanks_physics[i].position) < TANK_RANGE) {
 				gameplay_logic->outposts_logic[j].health -= 15.f;
 				gameplay_draw_data->tank_shot_animations[gameplay_draw_data->tank_shot_animations_count++] = (ShotAnimation) {
+					.outpost_position = gameplay_physics->outposts_physics[j].position,
+					.tank_position = gameplay_physics->tanks_physics[i].position,
+					.initial_direction = Vector2Normalize(gameplay_physics->tanks_physics[i].velocity),
 					.seconds_remaining = 0.2f,
-					.tank_index = i,
-					.outpost_index = j,
+					.type = gameplay_logic->tanks_logic[i].type,
 				};
 				gameplay_logic->tanks_logic[i].seconds_since_last_shot = 0.f;
 
@@ -461,7 +551,7 @@ next_outpost: {}
 			Vector2 displacement = Vector2Subtract(gameplay_physics->tanks_physics[i].position, gameplay_logic->tanks_path_points[gameplay_logic->tanks_path_points_count - 1]);
 			gameplay_physics->tanks_physics[i].acceleration = Vector2Scale(gameplay_physics->tanks_physics[i].velocity, -5.f);
 		} else {
-			gameplay_physics->tanks_physics[i].velocity = Vector2ClampValue(gameplay_physics->tanks_physics[i].velocity, 150.f, 150.f);
+			gameplay_physics->tanks_physics[i].velocity = Vector2ClampValue(gameplay_physics->tanks_physics[i].velocity, TANK_SPEED, TANK_SPEED);
 		}
 
 		if (Vector2Distance(gameplay_physics->tanks_physics[i].position, gameplay_logic->tanks_path_points[gameplay_logic->tanks_logic[i].path_segment_index + 1]) < 60.f) {
@@ -475,7 +565,6 @@ next_outpost: {}
 		}
 	}
 
-	float frame_time = GetFrameTime();
 	for (uint8_t i = 0; i < gameplay_logic->outposts_count; i++)
 		gameplay_logic->outposts_logic[i].seconds_since_last_shot += frame_time;
 	for (uint8_t i = 0; i < gameplay_logic->tanks_count; i++)
@@ -604,29 +693,27 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayPhysics const *ga
 	// draw animations (outpost and tank)
 
 	for (uint8_t i = 0; i < gameplay_draw_data->outpost_shot_animations_count; i++) {
-		uint8_t outpost_index = gameplay_draw_data->outpost_shot_animations[i].outpost_index;
-		uint8_t tank_index = gameplay_draw_data->outpost_shot_animations[i].tank_index;
+		Vector2 outpost_position = gameplay_draw_data->outpost_shot_animations[i].outpost_position;
+		Vector2 tank_position = gameplay_draw_data->outpost_shot_animations[i].tank_position;
+		Vector2 initial_direction = gameplay_draw_data->outpost_shot_animations[i].initial_direction;
 
-		Vector2 start = gameplay_physics->outposts_physics[outpost_index].position;
-		Vector2 end = gameplay_physics->tanks_physics[tank_index].position;
-		float distance = Vector2Distance(end, start);
-
+		float distance = Vector2Distance(tank_position, outpost_position);
 		float fraction_remaining = gameplay_draw_data->outpost_shot_animations[i].seconds_remaining;
 
-		OutpostType outpost_type = gameplay_logic->outposts_logic[gameplay_draw_data->outpost_shot_animations[i].outpost_index].type;
+		OutpostType outpost_type = gameplay_draw_data->outpost_shot_animations[i].type;
 		switch (outpost_type) {
 		case OUTPOST_SIMPLE:
 		case OUTPOST_MORTAR:
 			float cos = Vector2DotProduct(
-				gameplay_physics->outposts_physics[outpost_index].turret_direction,
-				Vector2Scale(Vector2Subtract(end, start), 1.f / distance)
+				initial_direction,
+				Vector2Scale(Vector2Subtract(tank_position, outpost_position), 1.f / distance)
 			);
 			if (cos < 0.5f) // To prevent excessively long Beziers
 				cos = 0.5f;
 			Vector2 control = Vector2Add(
-				start,
+				outpost_position,
 				Vector2Scale(
-					gameplay_physics->outposts_physics[outpost_index].turret_direction,
+					initial_direction,
 					distance / (cos * 2.f)
 				)
 			);
@@ -649,10 +736,10 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayPhysics const *ga
 					.a = 127.f * sqrtf(fraction_remaining),
 				};
 
-				DrawCircleV(gameplay_physics->tanks_physics[tank_index].position, 150.f * sqrtf(fraction_remaining), color);
+				DrawCircleV(tank_position, 150.f * sqrtf(fraction_remaining), color);
 			}
 			DrawSplineBezierQuadratic(
-				(Vector2 []) {start, control, end},
+				(Vector2 []) {outpost_position, control, tank_position},
 				3,
 				10,
 				color
@@ -661,10 +748,10 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayPhysics const *ga
 
 		case OUTPOST_PIERCE:
 			DrawLineEx(
-				start,
+				outpost_position,
 				Vector2Add(
-					start,
-					Vector2Scale(Vector2Subtract(end, start), OUTPOST_RANGE * 1.5f / distance)
+					outpost_position,
+					Vector2Scale(Vector2Subtract(tank_position, outpost_position), OUTPOST_RANGE * 1.5f / distance)
 				),
 				5.f * (2.f + sinf(10.f * M_PI * fraction_remaining)),
 				(Color) {
@@ -1028,30 +1115,6 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 //        EndDrawing();
 //    }}
 
-#define GREEN_TANK_ATLAS_SOURCE_RECTANGLE\
-	((Rectangle) {\
-	 	.x = 0,\
-		.y = 0,\
-		.width = 63,\
-		.height = 83,\
-	 })
-
-#define BLUE_TANK_ATLAS_SOURCE_RECTANGLE\
-	((Rectangle) {\
-	 	.x = 0,\
-		.y = 100,\
-		.width = 62,\
-		.height = 67,\
-	 })
-
-#define RED_TANK_ATLAS_SOURCE_RECTANGLE\
-	((Rectangle) {\
-	 	.x = 0,\
-		.y = 182,\
-		.width = 59,\
-		.height = 68,\
-	 })
-
 int main(void)
 {
 	SetConfigFlags(FLAG_MSAA_4X_HINT); // Antialiasing (must be called before InitWindow())
@@ -1068,6 +1131,7 @@ int main(void)
 
 #define TITLE_SCREEN_TANKS_COUNT 50
 #define MAXIMUM_OUTPOSTS_COUNT 128
+#define MAXIMUM_TANKS_COUNT 128
 #define MAXIMUM_OUTPOST_SHOT_ANIMATIONS_COUNT 128
 #define MAXIMUM_TANK_SHOT_ANIMATIONS_COUNT 128
 
@@ -1142,7 +1206,7 @@ int main(void)
 	TitleScreenDrawData title_screen_draw_data = {
 		.texture_atlas = texture_atlas,
 		.background_color = DARKGREEN,
-		.tanks_draw_data = malloc(TITLE_SCREEN_TANKS_COUNT * sizeof (TankDrawData)),
+		.tanks_draw_data = malloc(TITLE_SCREEN_TANKS_COUNT * sizeof (TankDrawData)), // alloca()? free()?
 		.text_button_specifications = title_screen_text_button_specifications,
 		.music_toggle_button_specification = title_screen_music_toggle_button_specification,
 		.tanks_count = TITLE_SCREEN_TANKS_COUNT,
@@ -1150,38 +1214,24 @@ int main(void)
 	};
 
 	GameplayLogic gameplay_logic = {
-		.outposts_logic = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostLogic)), // get rid of all alloca() calls? can this just be a reference to an rvalue?
-		.tanks_logic = &(TankLogic) {
-			.health = TANK_MAXIMUM_HEALTH,
-		},
+		.outposts_logic = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostLogic)),
+		.tanks_logic = malloc(MAXIMUM_TANKS_COUNT * sizeof (TankLogic)),
 		.tanks_path_points = game_state_tanks_path_points,
-		.tanks_count = 1,
 		.tanks_path_points_count = game_state_tanks_path_points_count,
 	};
 
 	GameplayPhysics gameplay_physics = {
 		.outposts_physics = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostPhysics)),
-		.tanks_physics = &(TankPhysics) {
-			.position = {0, 200},
-			.velocity = {1, 0},
-		},
-		.tanks_count = 1,
+		.tanks_physics = malloc(MAXIMUM_TANKS_COUNT * sizeof (TankPhysics)),
 	};
 
 	GameplayDrawData gameplay_draw_data = {
 		.texture_atlas = texture_atlas,
-		.outposts_draw_data = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostDrawData)), // MALLOC
-		.tanks_draw_data = &(TankDrawData) {
-			.atlas_source_rectangle = RED_TANK_ATLAS_SOURCE_RECTANGLE,
-			.destination_rectangle = {
-				.width = GREEN_TANK_ATLAS_SOURCE_RECTANGLE.width,
-				.height = GREEN_TANK_ATLAS_SOURCE_RECTANGLE.height,
-			},
-		},
+		.outposts_draw_data = malloc(MAXIMUM_OUTPOSTS_COUNT * sizeof (OutpostDrawData)),
+		.tanks_draw_data = malloc(MAXIMUM_TANKS_COUNT * sizeof (TankDrawData)),
 		.outpost_shot_animations = malloc(MAXIMUM_OUTPOST_SHOT_ANIMATIONS_COUNT * sizeof (ShotAnimation)),
 		.tank_shot_animations = malloc(MAXIMUM_TANK_SHOT_ANIMATIONS_COUNT * sizeof (ShotAnimation)),
 		.tanks_path_points = game_state_tanks_path_points,
-		.tanks_count = 1,
 		.tanks_path_points_count = game_state_tanks_path_points_count,
 	};
 
@@ -1306,7 +1356,7 @@ respawn:
 			updateGameplayPhysics(&gameplay_physics);
 
 			updateGameplayDrawData(&gameplay_draw_data, &gameplay_physics);
-
+printf("num_outposts: %u\n", gameplay_draw_data.outposts_count); // TODO outposts, tanks randomly disappear
 			drawGameplay(&gameplay_logic, &gameplay_physics, &gameplay_draw_data);
 			drawGameUi(&game_ui_logic, &gameplay_logic, &gameplay_draw_data, texture_atlas);
 			break;
