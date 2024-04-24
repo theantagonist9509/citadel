@@ -11,9 +11,9 @@
 #define WINDOW_HEIGHT 1080
 
 typedef enum { // separate each type into own array for data-orientation
-	TANK_SINGLE,
-	TANK_DOUBLE,
-	TANK_PIERCE,
+	TANK_GREEN,
+	TANK_BLUE,
+	TANK_RED,
 } TankType;
 
 typedef struct {
@@ -81,6 +81,7 @@ typedef enum {
 	GAME,
 	QUIT,
 	TITLE_SCREEN,
+	END_SCREEN,
 } MetaState;
 
 typedef struct {
@@ -113,6 +114,10 @@ typedef struct {
 	OutpostLogic *outposts_logic;
 	TankLogic *tanks_logic;
 	Vector2 *tanks_path_points;
+
+	float seconds_since_last_coin_drop;
+	uint32_t coins;
+	float score; // Seconds survived
 
 	float seconds_till_next_wave;
 	uint8_t current_wave_number;
@@ -221,6 +226,7 @@ void drawHighscore(char highscore_text[], Texture2D texture_atlas, float scale)
 
 #define HEALTH_BAR_WIDTH 75.f
 #define HEALTH_BAR_HEIGHT 10.f
+
 void drawHealthBar(float health, float maximum_health, Vector2 position)
 {
 	float fraction = health / maximum_health;
@@ -240,18 +246,19 @@ void drawTank(TankDrawData const *draw_data, Texture2D texture_atlas)
 	);
 }
 
+#define BUTTON_ENLARGE_FACTOR 5.f / 4.f
+
 void enlargeTextButton(TextButtonSpecification *draw_data, Rectangle const *original_rectangle)
 {
-#define BUTTON_ENLARGE_FACTOR 5.f / 4.f
 	draw_data->rectangle.x = original_rectangle->x - original_rectangle->width * ((BUTTON_ENLARGE_FACTOR - 1) / 2);
 	draw_data->rectangle.y = original_rectangle->y - original_rectangle->height * ((BUTTON_ENLARGE_FACTOR - 1) / 2);
 	draw_data->rectangle.width = BUTTON_ENLARGE_FACTOR * original_rectangle->width;
 	draw_data->rectangle.height = BUTTON_ENLARGE_FACTOR * original_rectangle->height;
-#undef BUTTON_ENLARGE_FACTOR
 }
 
 #define TITLE_SCREEN_SPAWN_PADDING 150
 #define HIGHSCORE_TEXT_SPLASH_FREQUENCY 1.f
+
 void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *title_screen_state, TitleScreenDrawData *title_screen_draw_data)
 {
 	float frame_time = GetFrameTime();
@@ -312,9 +319,10 @@ void updateMetaStateAndTitleScreen(MetaState *meta_state, TitleScreenState *titl
 	title_screen_draw_data->highscore_text_splash_time += frame_time;
 }
 
+#define BUTTON_TEXT_SCALE_FACTOR 2.f / 3.f
+
 void drawTextButton(TextButtonSpecification const *draw_data)
 {
-#define BUTTON_TEXT_SCALE_FACTOR 2.f / 3.f
 	DrawRectangleRec(draw_data->rectangle, draw_data->rectangle_color);
 
 	uint8_t font_size = draw_data->rectangle.height * BUTTON_TEXT_SCALE_FACTOR;
@@ -325,7 +333,6 @@ void drawTextButton(TextButtonSpecification const *draw_data)
 		font_size,
 		draw_data->text_color
 	);
-#undef BUTTON_TEXT_SCALE_FACTOR
 }
 
 void drawTitleScreen(TitleScreenDrawData const *title_screen_draw_data)
@@ -396,10 +403,21 @@ void evictElement(void *array, uint8_t length, size_t element_size, uint8_t inde
 #define OUTPOST_SIMPLE_ANIMATION_DURATION_SECONDS 0.25f
 #define OUTPOST_MORTAR_ANIMATION_DURATION_SECONDS 0.75f
 #define OUTPOST_PIERCE_ANIMATION_DURATION_SECONDS 0.75f
+#define TANK_GREEN_ANIMATION_DURATION_SECONDS 0.25f
+#define TANK_BLUE_ANIMATION_DURATION_SECONDS 0.75f
+#define TANK_RED_ANIMATION_DURATION_SECONDS 0.75f
 
-void updateGameplayLogic(GameplayLogic *gameplay_logic, GameplayPhysics *gameplay_physics, GameplayDrawData *gameplay_draw_data)
+#define COIN_DROP_CONSTANT 25
+
+void updateGameplayLogic(MetaState *meta_state, GameplayLogic *gameplay_logic, GameplayPhysics *gameplay_physics, GameplayDrawData *gameplay_draw_data)
 {
 	float frame_time = GetFrameTime();
+
+	//if (gameplay_logic->seconds_since_last_coin_drop > 5.f)
+	//	gameplay_logic->coins += (1 << gameplay_logic->current_wave_number) * COIN_DROP_CONSTANT;
+
+	//gameplay_logic->seconds_since_last_coin_drop += frame_time;
+	//gameplay_logic->score += frame_time;
 
 	if (gameplay_logic->seconds_till_next_wave < 0.f) {
 		if (gameplay_logic->current_wave_tanks_spawned_count < (1 << gameplay_logic->current_wave_number)) {
@@ -503,13 +521,13 @@ next_outpost: {}
 
 		for (uint8_t j = 0; j < gameplay_logic->outposts_count; j++) {
 			if (Vector2Distance(gameplay_physics->outposts_physics[j].position, gameplay_physics->tanks_physics[i].position) < TANK_RANGE) {
-				gameplay_logic->outposts_logic[j].health -= 15.f;
+				gameplay_logic->outposts_logic[j].health -= 15.f; // TODO currently all types do same damage
 				gameplay_draw_data->tank_shot_animations[gameplay_draw_data->tank_shot_animations_count++] = (ShotAnimation) {
 					.outpost_position = gameplay_physics->outposts_physics[j].position,
 					.tank_position = gameplay_physics->tanks_physics[i].position,
 					.initial_direction = Vector2Normalize(gameplay_physics->tanks_physics[i].velocity),
 					.seconds_remaining = 0.2f,
-					.type = gameplay_logic->tanks_logic[i].type,
+					.type = gameplay_logic->tanks_logic[i].type, // TODO currently all types show same animation
 				};
 				gameplay_logic->tanks_logic[i].seconds_since_last_shot = 0.f;
 
@@ -547,7 +565,11 @@ next_outpost: {}
 
 
 	for (uint8_t i = 0; i < gameplay_logic->tanks_count; i++) {
-		if (Vector2Distance(gameplay_physics->tanks_physics[i].position,  gameplay_logic->tanks_path_points[gameplay_logic->tanks_path_points_count - 1]) < 60.f) {
+		float distance = Vector2Distance(gameplay_physics->tanks_physics[i].position,  gameplay_logic->tanks_path_points[gameplay_logic->tanks_path_points_count - 1]);
+		if (distance < 40.f) { // TODO very hacky
+			*meta_state = END_SCREEN;
+			return;
+		} else if (distance < 60.f) {
 			Vector2 displacement = Vector2Subtract(gameplay_physics->tanks_physics[i].position, gameplay_logic->tanks_path_points[gameplay_logic->tanks_path_points_count - 1]);
 			gameplay_physics->tanks_physics[i].acceleration = Vector2Scale(gameplay_physics->tanks_physics[i].velocity, -5.f);
 		} else {
@@ -765,6 +787,71 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayPhysics const *ga
 		}
 	}
 
+	for (uint8_t i = 0; i < gameplay_draw_data->tank_shot_animations_count; i++) {
+		Vector2 tank_position = gameplay_draw_data->tank_shot_animations[i].tank_position;
+		Vector2 outpost_position = gameplay_draw_data->tank_shot_animations[i].outpost_position;
+		Vector2 initial_direction = gameplay_draw_data->tank_shot_animations[i].initial_direction;
+
+		float distance = Vector2Distance(outpost_position, tank_position);
+		float fraction_remaining = gameplay_draw_data->tank_shot_animations[i].seconds_remaining;
+
+		OutpostType tank_type = gameplay_draw_data->tank_shot_animations[i].type;
+
+		float cos = Vector2DotProduct(
+			initial_direction,
+			Vector2Scale(Vector2Subtract(outpost_position, tank_position), 1.f / distance)
+		);
+		if (cos < 0.5f) // To prevent excessively long Beziers
+			cos = 0.5f;
+		Vector2 control = Vector2Add(
+			tank_position,
+			Vector2Scale(
+				initial_direction,
+				distance / (cos * 2.f)
+			)
+		);
+
+		Color color;
+		switch (tank_type) {
+		case TANK_GREEN:
+			fraction_remaining /= TANK_GREEN_ANIMATION_DURATION_SECONDS;
+			color = (Color) {
+				.r = GREEN.r,
+				.g = GREEN.g,
+				.b = GREEN.b,
+				.a = 127.f * fraction_remaining,
+			};
+			break;
+		case TANK_BLUE:
+			fraction_remaining /= TANK_BLUE_ANIMATION_DURATION_SECONDS;
+			color = (Color) {
+				.r = BLUE.r,
+				.g = BLUE.g,
+				.b = BLUE.b,
+				.a = 127.f * sqrtf(fraction_remaining),
+			};
+
+			DrawCircleV(outpost_position, 150.f * sqrtf(fraction_remaining), color);
+			break;
+		case TANK_RED:
+			fraction_remaining /= TANK_RED_ANIMATION_DURATION_SECONDS;
+			color = (Color) {
+				.r = RED.r,
+				.g = RED.g,
+				.b = RED.b,
+				.a = 127.f * fraction_remaining,
+			};
+			break;
+
+		}
+		DrawSplineBezierQuadratic(
+			(Vector2 []) {tank_position, control, outpost_position},
+			3,
+			10,
+			color
+		);
+	}
+
 	for (uint8_t i = 0; i < gameplay_draw_data->outposts_count; i++) {
 		drawOutpostTurret(&gameplay_draw_data->outposts_draw_data[i], gameplay_draw_data->texture_atlas, WHITE);
 
@@ -795,7 +882,6 @@ void drawGameplay(GameplayLogic const *gameplay_logic, GameplayPhysics const *ga
 		);
 
 	}
-
 }
 
 
@@ -813,12 +899,9 @@ typedef struct {
 	uint8_t outpost_texture_button_specifications_count;
 
 	uint8_t selected_outpost;
-
-	uint32_t score; // move to GameplayLogic?
-	uint32_t coins;
 } GameUiLogic; // merge with GameplayLogic?
 
-//CHECK HOW THIS FUNCTION NEEDS TO BE ALTERED AS PER REQUIREMENT
+// CHECK HOW THIS FUNCTION NEEDS TO BE ALTERED AS PER REQUIREMENT
 //void handleSettingsInput(Settings* settings) {
 //    // Example: adjust sound volume with arrow keys
 //    if (IsKeyPressed(KEY_UP)) {
@@ -845,6 +928,7 @@ bool isMouseHoveringOverTextureButton(Rectangle specification_destination_rectan
 }
 
 #define SQRT_2_F 1.414213f
+
 bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_points_count, OutpostDrawData *outposts_draw_data, uint8_t outposts_count)
 {
 	for (uint8_t i = 0; i < path_points_count - 1; i++) {
@@ -881,6 +965,7 @@ bool canOutpostBePlaced(Vector2 position, Vector2 *path_points, uint8_t path_poi
 }
 
 #define SQRT_3_F 1.732050f
+
 void placeOutpost(OutpostType type, Vector2 position, OutpostLogic *logic, OutpostPhysics *physics, OutpostDrawData *draw_data)
 {
 	*logic = (OutpostLogic) {
@@ -1074,7 +1159,7 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 	}
 }
 
-//MINOR ADJUSTMENTS REQUIRED, SLIDER NOT SLIDING
+// MINOR ADJUSTMENTS REQUIRED, SLIDER NOT SLIDING
 // Function to draw the settings page
 //void DrawSettingsPage(Settings *settings) {
 //    bool draggingSlider = false; // Flag to track if the slider handle is being dragged
@@ -1115,6 +1200,12 @@ void drawGameUi(GameUiLogic const *game_ui_logic, GameplayLogic const *gameplay_
 //        EndDrawing();
 //    }}
 
+#define TITLE_SCREEN_TANKS_COUNT 50
+#define MAXIMUM_OUTPOSTS_COUNT 128
+#define MAXIMUM_TANKS_COUNT 128
+#define MAXIMUM_OUTPOST_SHOT_ANIMATIONS_COUNT 128
+#define MAXIMUM_TANK_SHOT_ANIMATIONS_COUNT 128
+
 int main(void)
 {
 	SetConfigFlags(FLAG_MSAA_4X_HINT); // Antialiasing (must be called before InitWindow())
@@ -1128,12 +1219,6 @@ int main(void)
 
 
 
-
-#define TITLE_SCREEN_TANKS_COUNT 50
-#define MAXIMUM_OUTPOSTS_COUNT 128
-#define MAXIMUM_TANKS_COUNT 128
-#define MAXIMUM_OUTPOST_SHOT_ANIMATIONS_COUNT 128
-#define MAXIMUM_TANK_SHOT_ANIMATIONS_COUNT 128
 
 	TextButtonSpecification title_screen_text_button_specifications[] = {
 		(TextButtonSpecification) {
@@ -1352,13 +1437,26 @@ respawn:
 			break;
 		case GAME:
 			updateGameUiLogic(&game_ui_logic, &gameplay_logic, &gameplay_physics, &gameplay_draw_data);
-			updateGameplayLogic(&gameplay_logic, &gameplay_physics, &gameplay_draw_data);
+			updateGameplayLogic(&meta_state, &gameplay_logic, &gameplay_physics, &gameplay_draw_data);
 			updateGameplayPhysics(&gameplay_physics);
 
 			updateGameplayDrawData(&gameplay_draw_data, &gameplay_physics);
 printf("num_outposts: %u\n", gameplay_draw_data.outposts_count); // TODO outposts, tanks randomly disappear
 			drawGameplay(&gameplay_logic, &gameplay_physics, &gameplay_draw_data);
 			drawGameUi(&game_ui_logic, &gameplay_logic, &gameplay_draw_data, texture_atlas);
+			break;
+		case END_SCREEN:
+			drawBackground(texture_atlas);
+			char text[] = "Game Over!";
+			float font_size = 200;
+			float text_length = MeasureText(text, font_size);
+			DrawText(
+				text,
+				WINDOW_WIDTH / 2 - text_length / 2,
+				WINDOW_HEIGHT / 2 - font_size / 2,
+				font_size,
+				BLACK
+			);
 			break;
 		case QUIT:
 			goto quit;
@@ -1370,5 +1468,17 @@ quit:
 	UnloadMusicStream(background_music);
 	CloseAudioDevice();
 	CloseWindow();
+
+	free(title_screen_music_toggle_button_specification.text);
+
+	free(gameplay_logic.outposts_logic);
+	free(gameplay_logic.tanks_logic);
+
+	free(gameplay_physics.outposts_physics);
+	free(gameplay_physics.tanks_physics);
+
+	free(gameplay_draw_data.outposts_draw_data);
+	free(gameplay_draw_data.tanks_draw_data);
+
 	return 0;
 }
